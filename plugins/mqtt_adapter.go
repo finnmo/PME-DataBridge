@@ -4,29 +4,33 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"os"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
-	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// MQTTAdapterConfig holds configuration settings for the MQTT adapter.
 type MQTTAdapterConfig struct {
-	Broker string
-	Port   int
-	Topic  string
-	CA     string
-	Cert   string
-	Key    string
+	Broker   string `mapstructure:"broker"`
+	Port     int    `mapstructure:"port"`
+	Topic    string `mapstructure:"topic"`
+	CA       string `mapstructure:"ca"`
+	Cert     string `mapstructure:"cert"`
+	Key      string `mapstructure:"key"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
+// MQTTAdapter implements the Adapter interface.
 type MQTTAdapter struct {
 	config MQTTAdapterConfig
 	client mqtt.Client
 }
 
+// NewMQTTAdapter creates a new MQTTAdapter given its configuration.
 func NewMQTTAdapter(config MQTTAdapterConfig) Adapter {
 	log.Printf("[MQTT Adapter] Creating new MQTT Adapter with config: %+v", config)
 	return &MQTTAdapter{
@@ -47,8 +51,17 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 	opts := mqtt.NewClientOptions()
 	brokerURL := fmt.Sprintf("%s:%d", m.config.Broker, m.config.Port)
 	opts.AddBroker(brokerURL)
-	opts.SetClientID("mygateway-mqtt")
+	opts.SetClientID("PME-DataBridge-mqtt")
 	opts.SetTLSConfig(tlsConfig)
+
+	// Optionally set username and password if provided.
+	if m.config.Username != "" {
+		opts.SetUsername(m.config.Username)
+	}
+	if m.config.Password != "" {
+		opts.SetPassword(m.config.Password)
+	}
+
 	opts.SetDefaultPublishHandler(func(client mqtt.Client, msg mqtt.Message) {
 		log.Printf("[MQTT Adapter] Received message on topic: %s", msg.Topic())
 		var payload map[string]interface{}
@@ -56,7 +69,6 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 			log.Printf("[MQTT Adapter] Error parsing JSON: %v", err)
 			return
 		}
-		// Parse JSON as before...
 		message, ok := payload["message"].(map[string]interface{})
 		if !ok {
 			log.Printf("[MQTT Adapter] Missing 'message' key")
@@ -129,29 +141,28 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 	}
 	log.Printf("[MQTT Adapter] Subscribed to topic %s", m.config.Topic)
 	go func() {
-		for {
-			time.Sleep(1 * time.Second)
-		}
+		// Block indefinitely.
+		select {}
 	}()
 	return nil
 }
 
 func newTLSConfig(caFile, certFile, keyFile string) (*tls.Config, error) {
-    caCert, err := os.ReadFile(caFile)
-    if err != nil {
-        return nil, err
-    }
-    caCertPool := x509.NewCertPool()
-    caCertPool.AppendCertsFromPEM(caCert)
-    cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-    if err != nil {
-        return nil, err
-    }
-    tlsConfig := &tls.Config{
-        RootCAs:      caCertPool,
-        Certificates: []tls.Certificate{cert},
-    }
-    return tlsConfig, nil
+	caCert, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	tlsConfig := &tls.Config{
+		RootCAs:      caCertPool,
+		Certificates: []tls.Certificate{cert},
+	}
+	return tlsConfig, nil
 }
 
 func parseInt(v interface{}) (int, error) {

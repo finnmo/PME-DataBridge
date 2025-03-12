@@ -2,14 +2,27 @@ mqtt:
   - broker: "example.mosquitto.com"
     port: 1883
     topic: "mqtt/topic/here"
+
+  #Optional username and password
+    username: "myuser"
+    password: "mypassword"
+
+  #Optional: Uncomment the following lines to enable TLS
+  #- broker: "tls://example.mosquitto.com"
     ca: "./certificates/ca.pem"
     cert: "./certificates/certificate.pem.crt"
     key: "./certificates/private.pem.key"
 
 mbusModbus:
   gatewayAddress: "192.168.1.1:502"
-  pollInterval: 10
-  totalBlocks: 10
+  pollInterval: 30 # seconds
+  devices:
+    - deviceID: "418-WRM-01-00018"
+      unitID: 1
+      baseRegister: 400180
+    - deviceID: "418-WRM-01-00003"
+      unitID: 2
+      baseRegister: 400030
 
 
 modbus:
