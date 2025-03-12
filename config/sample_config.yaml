@@ -1,0 +1,16 @@
+mqtt:
+  - broker: "example.mosquitto.com"
+    port: 1883
+    topic: "mqtt/topic/here"
+    ca: "./certificates/ca.pem"
+    cert: "./certificates/certificate.pem.crt"
+    key: "./certificates/private.pem.key"
+
+mbusModbus:
+  gatewayAddress: "192.168.1.1:502"
+  pollInterval: 10
+  totalBlocks: 10
+
+
+modbus:
+  tcp_port: "11502"
