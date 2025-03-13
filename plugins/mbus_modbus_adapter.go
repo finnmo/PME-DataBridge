@@ -1,105 +1,98 @@
 package plugins
 
 import (
-	"encoding/binary"
-	"fmt"
-	"log"
-	"time"
+    "encoding/binary"
+    "fmt"
+    "log"
+    "time"
 
-	"github.com/goburrow/modbus"
+    "github.com/goburrow/modbus"
 )
 
-// MbusMapping defines the mapping for one M-Bus device.
 type MbusMapping struct {
-	DeviceID     string `mapstructure:"deviceID"`
-	UnitID       int    `mapstructure:"unitID"`
-	BaseRegister int    `mapstructure:"baseRegister"` // Conventional register address (e.g. 40122)
+    DeviceID       string `mapstructure:"deviceID"`
+    UnitID         int    `mapstructure:"unitID"`
+    SlaveRegister  int    `mapstructure:"slaveRegister"`  // read from gateway
+    ServerRegister int    `mapstructure:"serverRegister"` // write to local server
 }
 
-// MbusModbusAdapterConfig holds the configuration for the Mbus-Modbus adapter.
+// MbusModbusAdapterConfig now no longer has a "GlobalRegister" field
 type MbusModbusAdapterConfig struct {
-	GatewayAddress string        `mapstructure:"gatewayAddress"`
-	PollInterval   int           `mapstructure:"pollInterval"` // seconds between polls
-	Devices        []MbusMapping `mapstructure:"devices"`      // list of devices to process
+    GatewayAddress string        `mapstructure:"gatewayAddress"`
+    PollInterval   int           `mapstructure:"pollInterval"`
+    Devices        []MbusMapping `mapstructure:"devices"`
 }
 
-// MbusModbusAdapter implements the Adapter interface.
+// MbusModbusAdapter ...
 type MbusModbusAdapter struct {
-	config  MbusModbusAdapterConfig
-	handler *modbus.TCPClientHandler
+    config  MbusModbusAdapterConfig
+    handler *modbus.TCPClientHandler
 }
 
-// NewMbusModbusAdapter creates a new instance of the Mbus-Modbus adapter.
 func NewMbusModbusAdapter(config MbusModbusAdapterConfig) Adapter {
-	log.Printf("[Mbus-Modbus Adapter] Creating new adapter with config: %+v", config)
-	return &MbusModbusAdapter{config: config}
+    return &MbusModbusAdapter{config: config}
 }
 
 func (m *MbusModbusAdapter) Name() string {
-	return "Mbus-Modbus Adapter"
+    return "Mbus-Modbus Adapter"
 }
 
-// Start polls each configured device at the specified interval.
-// For each device, it reads 10 registers (20 bytes) starting at the device's BaseRegister (converted to a zero-based offset using BaseRegister - 40000).
-// It then checks the block's type field (register 7, bytes 14-16) to ensure it is a meter value entry (type 0)
-// before sending the normalized data on dataCh.
+// Start reads from (SlaveRegister - 400000) + 4 as a single 16-bit register, then sends it to
+// "serverRegister" in your local server, consistent with the new device-based config.
 func (m *MbusModbusAdapter) Start(dataCh chan<- Data) error {
-	m.handler = modbus.NewTCPClientHandler(m.config.GatewayAddress)
-	m.handler.Timeout = 5 * time.Second
-	m.handler.SlaveId = 0x01 // typical for the Anybus M-Bus/Modbus gateway
+    m.handler = modbus.NewTCPClientHandler(m.config.GatewayAddress)
+    m.handler.Timeout = 5 * time.Second
+    m.handler.SlaveId = 0x01
 
-	if err := m.handler.Connect(); err != nil {
-		return fmt.Errorf("error connecting to gateway: %w", err)
-	}
-	client := modbus.NewClient(m.handler)
+    if err := m.handler.Connect(); err != nil {
+        return fmt.Errorf("error connecting to gateway: %w", err)
+    }
+    client := modbus.NewClient(m.handler)
 
-	go func() {
-		defer m.handler.Close()
-		ticker := time.NewTicker(time.Duration(m.config.PollInterval) * time.Second)
-		defer ticker.Stop()
+    go func() {
+        defer m.handler.Close()
+        ticker := time.NewTicker(time.Duration(m.config.PollInterval) * time.Second)
+        defer ticker.Stop()
 
-		for range ticker.C {
-			for _, device := range m.config.Devices {
-				// Compute the zero-based register offset using 40000 as the base.
-				offset := device.BaseRegister - 400000
-				if offset < 0 {
-					log.Printf("[Mbus-Modbus Adapter] Negative offset computed for device %s: %d", device.DeviceID, offset)
-					continue
-				}
+        for range ticker.C {
+            for _, device := range m.config.Devices {
+                log.Printf("Device %s -> slaveReg=%d, serverReg=%d", 
+                           device.DeviceID, device.SlaveRegister, device.ServerRegister)
 
-				// Read 10 registers (20 bytes) for this device.
-				results, err := client.ReadHoldingRegisters(uint16(offset), 10)
-				if err != nil {
-					log.Printf("[Mbus-Modbus Adapter] Error reading registers for device %s: %v", device.DeviceID, err)
-					continue
-				}
-				if len(results) < 20 {
-					log.Printf("[Mbus-Modbus Adapter] Insufficient data for device %s (expected 20 bytes, got %d)", device.DeviceID, len(results))
-					continue
-				}
+                // Example: read 1 register at offset = (SlaveRegister - 400000) + 4
+                offset := (device.SlaveRegister - 400000) + 4
+                if offset < 0 {
+                    log.Printf("[Mbus-Modbus] Negative offset for device %s: %d", device.DeviceID, offset)
+                    continue
+                }
 
-				// Check the type field in register 7 (bytes 14-16).
-				// According to the documentation, the upper byte of register 7 indicates the block type:
-				// 1 = Gateway entry, 2 = Meter entry, 0 = Meter value entry.
-				typeField := binary.BigEndian.Uint16(results[14:16])
-				blockType := (typeField >> 8) & 0xFF
-				if blockType != 0 {
-					log.Printf("[Mbus-Modbus Adapter] Device %s: Unexpected block type %d at base register %d", device.DeviceID, blockType, device.BaseRegister)
-					continue
-				}
+                results, err := client.ReadHoldingRegisters(uint16(offset), 1)
+                if err != nil {
+                    log.Printf("[Mbus-Modbus] Error reading device %s: %v", device.DeviceID, err)
+                    continue
+                }
+                if len(results) < 2 {
+                    log.Printf("[Mbus-Modbus] Insufficient data for device %s (need 2 bytes, got %d)", device.DeviceID, len(results))
+                    continue
+                }
 
-				// Parse a 64-bit integer from the first 8 bytes of the block.
-				value64 := int64(binary.BigEndian.Uint64(results[0:8]))
-				normalized := int32(value64) // Adjust scaling if needed.
+                // Parse big-endian signed 16-bit
+                raw16 := int16(binary.BigEndian.Uint16(results[0:2]))
+                value32 := int32(raw16)
 
-				log.Printf("[Mbus-Modbus Adapter] Device %s: Read meter value %d from base register %d", device.DeviceID, normalized, device.BaseRegister)
-				dataCh <- Data{
-					UnitID:         device.UnitID,
-					ModbusRegister: device.BaseRegister,
-					Liters:         normalized,
-				}
-			}
-		}
-	}()
-	return nil
+                log.Printf("[Mbus-Modbus] Device %s: read value %d from offset %d => writing to serverReg %d",
+                           device.DeviceID, value32, offset, device.ServerRegister)
+
+                // Send data to local server using serverRegister
+                dataCh <- Data{
+                    UnitID:         device.UnitID,
+                    ModbusRegister: device.ServerRegister,
+                    Liters:         value32,
+                }
+
+                time.Sleep(200 * time.Millisecond) // Avoid flooding gateway
+            }
+        }
+    }()
+    return nil
 }

@@ -32,7 +32,6 @@ type MQTTAdapter struct {
 
 // NewMQTTAdapter creates a new MQTTAdapter given its configuration.
 func NewMQTTAdapter(config MQTTAdapterConfig) Adapter {
-	log.Printf("[MQTT Adapter] Creating new MQTT Adapter with config: %+v", config)
 	return &MQTTAdapter{
 		config: config,
 	}

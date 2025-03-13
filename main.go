@@ -22,9 +22,6 @@ func loadConfig() error {
 		return err
 	}
 	log.Printf("[CONFIG] Loaded configuration from %s", viper.ConfigFileUsed())
-	log.Printf("[CONFIG] MQTT Config: %+v", viper.Get("mqtt"))
-	log.Printf("[CONFIG] MbusModbus Config: %+v", viper.Get("mbusModbus"))
-	log.Printf("[CONFIG] Modbus Config: %+v", viper.Get("modbus"))
 	return nil
 }
 
@@ -46,7 +43,6 @@ func main() {
 	if err := viper.UnmarshalKey("mbusModbus", &mbusModbusConfig); err != nil {
 		log.Fatalf("[MAIN] Error unmarshalling mbusModbus config: %v", err)
 	}
-	log.Printf("[MAIN] MbusModbus Adapter Config: %+v", mbusModbusConfig)
 
 	// Get Modbus configuration.
 	modbusPort := viper.GetString("modbus.tcp_port")
