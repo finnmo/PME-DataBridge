@@ -1,3 +1,6 @@
 *.log
 config.yaml
+configBU.yaml
 /certificates/*
+pme-databridge
+go.sum
