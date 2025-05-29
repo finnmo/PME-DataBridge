@@ -1,0 +1,140 @@
+mqtt:
+  - broker: "tls://agi8wtqgu97at-ats.iot.ap-southeast-2.amazonaws.com"
+    port: 8883
+    topic: "pfd/ot/water"
+    ca: "./certificates/ca.pem"
+    cert: "./certificates/certificate.pem.crt"
+    key: "./certificates/private.pem.key"
+
+mbusModbus:
+  gatewayAddress: "10.129.195.98:502"
+  pollInterval: 30 # seconds
+  devices:
+    - deviceID: "418-WMR-01-0003"
+      unitID: 52
+      slaveRegister: 400030
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0014"
+      unitID: 53
+      slaveRegister: 400140
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0011"
+      unitID: 54
+      slaveRegister: 400110
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0015"
+      unitID: 55
+      slaveRegister: 400120
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0017"
+      unitID: 56
+      slaveRegister: 400170
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0019"
+      unitID: 57
+      slaveRegister: 400190
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0008"
+      unitID: 58
+      slaveRegister: 400080
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0010"
+      unitID: 59
+      slaveRegister: 400100
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0009"
+      unitID: 60
+      slaveRegister: 400090
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0002"
+      unitID: 61
+      slaveRegister: 400020
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0013"
+      unitID: 62
+      slaveRegister: 400130
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0006"
+      unitID: 63
+      slaveRegister: 400060
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0004"
+      unitID: 64
+      slaveRegister: 400040
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0007"
+      unitID: 65
+      slaveRegister: 400070
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0023"
+      unitID: 66
+      slaveRegister: 400230
+      serverRegister: 403021
+
+    - deviceID: "418-GAM-01-0001"
+      unitID: 67
+      slaveRegister: 400240
+      serverRegister: 403031
+
+    - deviceID: "418-WMR-01-0022"
+      unitID: 68
+      slaveRegister: 400220
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0001"
+      unitID: 69
+      slaveRegister: 400010
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0016"
+      unitID: 70
+      slaveRegister: 400160
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0021"
+      unitID: 71
+      slaveRegister: 400210
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0020"
+      unitID: 72
+      slaveRegister: 400200
+      serverRegister: 403021
+
+    - deviceID: "418-GAM-01-0002"
+      unitID: 73
+      slaveRegister: 400250
+      serverRegister: 403031
+
+    - deviceID: "418-GAM-01-0003"
+      unitID: 74
+      slaveRegister: 400260
+      serverRegister: 403031
+
+    - deviceID: "418-WMR-01-0024"
+      unitID: 75
+      slaveRegister: 401000
+      serverRegister: 403021
+
+    - deviceID: "418-WMR-01-0015"
+      unitID: 76
+      slaveRegister: 400150
+      serverRegister: 403021
+
+
+modbus:
+  tcp_port: "502"

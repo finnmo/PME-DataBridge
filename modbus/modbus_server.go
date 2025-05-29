@@ -11,7 +11,7 @@ import (
 // SlaveContext holds the holding registers for a Modbus unit.
 type SlaveContext struct {
     HR []uint16
-    mu sync.RWMutex
+    Mu sync.RWMutex  // <-- Must be capital "M" to export.
 }
 
 // ServerContext holds all the slave contexts.
@@ -46,8 +46,8 @@ func (sc *ServerContext) UpdateRegister(unitID int, registerOffset int, value in
     r1 := binary.BigEndian.Uint16(buf[0:2]) // high word
     r2 := binary.BigEndian.Uint16(buf[2:4]) // low word
 
-    slave.mu.Lock()
-    defer slave.mu.Unlock()
+    slave.Mu.Lock()
+    defer slave.Mu.Unlock()
 
     if registerOffset < 0 || registerOffset+1 >= len(slave.HR) {
         log.Printf("Register offset %d out of range for unit %d.", registerOffset, unitID)
@@ -131,15 +131,15 @@ func handleConnection(c net.Conn, ctx *ServerContext) {
             start := int(startAddress)
             reqQty := int(quantity)
 
-            slave.mu.RLock()
+            slave.Mu.RLock()
             if start+reqQty > len(slave.HR) {
                 log.Printf("Requested registers out of range: start %d, quantity %d", start, reqQty)
-                slave.mu.RUnlock()
+                slave.Mu.RUnlock()
                 sendExceptionResponse(c, transactionID, unitID, functionCode, 0x02)
                 continue
             }
             registers := slave.HR[start : start+reqQty]
-            slave.mu.RUnlock()
+            slave.Mu.RUnlock()
 
             // Build normal response
             byteCount := uint8(len(registers) * 2)

@@ -42,6 +42,12 @@ func main() {
         log.Printf("[MAIN] Notice: could not unmarshal 'mbusModbus' config. Possibly missing or empty. Error: %v", errMbus)
     }
 
+    //Load debug config
+    var debugCfg plugins.DebugUIPluginConfig
+    if err := viper.UnmarshalKey("debugUI", &debugCfg); err == nil {
+        // No error
+    }
+    
     // Start building the bridging environment
     modbusPort := viper.GetString("modbus.tcp_port")
     log.Printf("[MAIN] Modbus TCP Server will run on port: %s", modbusPort)
@@ -52,6 +58,19 @@ func main() {
     // Create the Modbus server context
     modbusCtx := modbus.NewServerContext()
     log.Printf("[MAIN] Created Modbus server context with %d slave units.", len(modbusCtx.Slaves))
+
+
+    // Once you've created modbusCtx, you create the debug plugin:
+    debugPlugin := plugins.NewDebugUIPlugin(
+        plugins.DebugUIPluginConfig{
+            Enabled:     debugCfg.Enabled,
+            PollSeconds: debugCfg.PollSeconds,
+            Units:       debugCfg.Units,
+            StartOffset: debugCfg.StartOffset,
+            EndOffset:   debugCfg.EndOffset,
+        },
+        modbusCtx,
+    )
 
     // --- Conditionally start MQTT adapters ---
     if len(mqttConfigs) > 0 {
@@ -78,6 +97,13 @@ func main() {
             }
         }()
     }
+
+    // Start the debug plugin
+    go func() {
+        if err := debugPlugin.Start(nil); err != nil {
+            log.Printf("[MAIN] Error starting DebugUI plugin: %v", err)
+        }
+    }()
     // Process incoming normalized data
     go func() {
         for d := range dataCh {
@@ -108,3 +134,4 @@ func main() {
     log.Println("[MAIN] Shutting down...")
     time.Sleep(1 * time.Second)
 }
+
