@@ -1,0 +1,44 @@
+[
+  {
+    "unitID": 3,
+    "registerOffset": 3020,
+    "value": 19692760,
+    "timestamp": 1749791856
+  },
+  {
+    "unitID": 5,
+    "registerOffset": 3020,
+    "value": 106629,
+    "timestamp": 1749792626
+  },
+  {
+    "unitID": 4,
+    "registerOffset": 3020,
+    "value": 95703760,
+    "timestamp": 1749792534
+  },
+  {
+    "unitID": 8,
+    "registerOffset": 3020,
+    "value": 10395560,
+    "timestamp": 1749792582
+  },
+  {
+    "unitID": 2,
+    "registerOffset": 3020,
+    "value": 6813679,
+    "timestamp": 1749793113
+  },
+  {
+    "unitID": 7,
+    "registerOffset": 3020,
+    "value": 8264360,
+    "timestamp": 1749790098
+  },
+  {
+    "unitID": 6,
+    "registerOffset": 3020,
+    "value": 18325430,
+    "timestamp": 1749786984
+  }
+]
