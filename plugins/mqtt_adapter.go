@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -29,12 +30,18 @@ type MQTTAdapterConfig struct {
 type MQTTAdapter struct {
 	config MQTTAdapterConfig
 	client mqtt.Client
+	// Add message buffer for reliability
+	messageBuffer []Data
+	bufferMutex   sync.RWMutex
+	bufferSize    int
 }
 
 // NewMQTTAdapter creates a new MQTTAdapter given its configuration.
 func NewMQTTAdapter(config MQTTAdapterConfig) Adapter {
 	return &MQTTAdapter{
-		config: config,
+		config:        config,
+		messageBuffer: make([]Data, 0, 100), // Buffer up to 100 messages
+		bufferSize:    100,
 	}
 }
 
@@ -54,6 +61,14 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 	opts.AddBroker(brokerURL)
 	opts.SetClientID("PME-DataBridge-mqtt")
 	opts.SetTLSConfig(tlsConfig)
+
+	// Add connection reliability settings
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetPingTimeout(10 * time.Second)
+	opts.SetConnectTimeout(30 * time.Second)
+	opts.SetMaxReconnectInterval(1 * time.Minute)
+	opts.SetAutoReconnect(true)
+	opts.SetCleanSession(false) // Keep session to avoid losing messages
 
 	if m.config.Username != "" {
 		opts.SetUsername(m.config.Username)
@@ -104,14 +119,29 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 			return
 		}
 
-		// Combine all relevant info into a single log line
-		log.Printf("[MQTT->DataCh] Sending data - liters=%d, unitID=%d, reg=%d", liters, unitID, modbusRegister)
-
-		// Pass normalized data to bridging
-		dataCh <- Data{
+		// Create normalized data
+		data := Data{
 			UnitID:         unitID,
 			ModbusRegister: modbusRegister,
 			Liters:         liters,
+		}
+
+		// Try to send to channel, buffer if full
+		select {
+		case dataCh <- data:
+			log.Printf("[MQTT->DataCh] Sending data - liters=%d, unitID=%d, reg=%d", liters, unitID, modbusRegister)
+		default:
+			// Channel is full, buffer the message
+			m.bufferMutex.Lock()
+			if len(m.messageBuffer) < m.bufferSize {
+				m.messageBuffer = append(m.messageBuffer, data)
+				log.Printf("[MQTT Adapter] Buffered message - buffer size: %d", len(m.messageBuffer))
+			} else {
+				log.Printf("[MQTT Adapter] Buffer full, dropping oldest message")
+				// Remove oldest message and add new one
+				m.messageBuffer = append(m.messageBuffer[1:], data)
+			}
+			m.bufferMutex.Unlock()
 		}
 	})
 
@@ -161,6 +191,30 @@ func (m *MQTTAdapter) Start(dataCh chan<- Data) error {
 				if token := m.client.Connect(); token.Wait() && token.Error() != nil {
 					log.Printf("[MQTT Adapter] Health check: Reconnection failed: %v", token.Error())
 				}
+			} else {
+				log.Printf("[MQTT Adapter] Health check: Connection is healthy")
+
+				// Try to flush buffered messages
+				m.bufferMutex.Lock()
+				if len(m.messageBuffer) > 0 {
+					log.Printf("[MQTT Adapter] Attempting to flush %d buffered messages", len(m.messageBuffer))
+					for i, data := range m.messageBuffer {
+						select {
+						case dataCh <- data:
+							log.Printf("[MQTT Adapter] Flushed buffered message %d", i+1)
+						default:
+							// Still can't send, keep remaining messages
+							m.messageBuffer = m.messageBuffer[i:]
+							log.Printf("[MQTT Adapter] Could not flush all messages, %d remaining", len(m.messageBuffer))
+							break
+						}
+					}
+					// Clear successfully sent messages
+					if len(m.messageBuffer) == 0 {
+						m.messageBuffer = m.messageBuffer[:0]
+					}
+				}
+				m.bufferMutex.Unlock()
 			}
 		}
 	}()
@@ -193,5 +247,52 @@ func parseInt(v interface{}) (int, error) {
 		return strconv.Atoi(val)
 	default:
 		return 0, fmt.Errorf("unexpected type %T", v)
+	}
+}
+
+// IsConnected returns true if the MQTT client is connected
+func (m *MQTTAdapter) IsConnected() bool {
+	return m.client != nil && m.client.IsConnected()
+}
+
+// Reconnect attempts to reconnect the MQTT client
+func (m *MQTTAdapter) Reconnect() error {
+	if m.client == nil {
+		return fmt.Errorf("client not initialized")
+	}
+
+	log.Printf("[MQTT Adapter] Manual reconnection attempt...")
+	if token := m.client.Connect(); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("manual reconnection failed: %w", token.Error())
+	}
+
+	// Resubscribe to topic
+	if token := m.client.Subscribe(m.config.Topic, 1, nil); token.Wait() && token.Error() != nil {
+		return fmt.Errorf("failed to resubscribe: %w", token.Error())
+	}
+
+	log.Printf("[MQTT Adapter] Manual reconnection successful")
+	return nil
+}
+
+// GetBufferedMessages returns a copy of buffered messages and clears the buffer
+func (m *MQTTAdapter) GetBufferedMessages() []Data {
+	m.bufferMutex.Lock()
+	defer m.bufferMutex.Unlock()
+
+	if len(m.messageBuffer) == 0 {
+		return nil
+	}
+
+	messages := make([]Data, len(m.messageBuffer))
+	copy(messages, m.messageBuffer)
+	m.messageBuffer = m.messageBuffer[:0] // Clear buffer
+	return messages
+}
+
+// Disconnect gracefully disconnects the MQTT client
+func (m *MQTTAdapter) Disconnect() {
+	if m.client != nil {
+		m.client.Disconnect(250)
 	}
 }

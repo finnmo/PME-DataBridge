@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -13,6 +14,20 @@ import (
 	"PME-DataBridge/plugins"
 
 	"github.com/spf13/viper"
+)
+
+// Global variables for monitoring
+var (
+	lastDataTime time.Time
+	dataCount    int
+	dataMutex    sync.RWMutex
+	systemHealth struct {
+		mqttConnected   bool
+		modbusListening bool
+		lastHealthCheck time.Time
+		errorCount      int
+	}
+	healthMutex sync.RWMutex
 )
 
 func validateConfig() error {
@@ -98,6 +113,15 @@ func main() {
 		}(adapter)
 	}
 
+	// Start MQTT connection monitoring
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			log.Printf("[MAIN] MQTT connection status check - %d adapters running", len(adapters))
+		}
+	}()
+
 	// Start Mbus-Modbus adapter if configured
 	if mbusModbusConfig.GatewayAddress != "" && len(mbusModbusConfig.Devices) > 0 {
 		mbusAdapter := plugins.NewMbusModbusAdapter(mbusModbusConfig)
@@ -120,6 +144,11 @@ func main() {
 	// Process incoming normalized data
 	go func() {
 		for d := range dataCh {
+			dataMutex.Lock()
+			lastDataTime = time.Now()
+			dataCount++
+			dataMutex.Unlock()
+
 			log.Printf("[DATA] Received normalized data: %+v", d)
 			registerOffset := d.ModbusRegister - 400001
 			if registerOffset < 0 {
@@ -127,6 +156,62 @@ func main() {
 				continue
 			}
 			modbusCtx.UpdateRegister(d.UnitID, registerOffset, d.Liters)
+		}
+	}()
+
+	// System health monitoring
+	go func() {
+		ticker := time.NewTicker(2 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			healthMutex.Lock()
+			systemHealth.lastHealthCheck = time.Now()
+
+			// Check data flow
+			dataMutex.RLock()
+			timeSinceLastData := time.Since(lastDataTime)
+			dataMutex.RUnlock()
+
+			// Check MQTT connections
+			mqttConnected := true
+			for i, adapter := range adapters {
+				if mqttAdapter, ok := adapter.(*plugins.MQTTAdapter); ok {
+					if !mqttAdapter.IsConnected() {
+						mqttConnected = false
+						log.Printf("[HEALTH] MQTT adapter %d is disconnected", i+1)
+					}
+				}
+			}
+			systemHealth.mqttConnected = mqttConnected
+
+			// Log health status
+			if timeSinceLastData > 15*time.Minute {
+				log.Printf("[HEALTH ALERT] System health check - No data for %v, MQTT: %v",
+					timeSinceLastData, mqttConnected)
+				systemHealth.errorCount++
+
+				// Trigger recovery actions
+				if systemHealth.errorCount > 3 {
+					log.Printf("[HEALTH ALERT] Multiple errors detected, triggering recovery...")
+					// Restart MQTT adapters
+					for i, adapter := range adapters {
+						if mqttAdapter, ok := adapter.(*plugins.MQTTAdapter); ok {
+							log.Printf("[HEALTH] Restarting MQTT adapter %d", i+1)
+							if err := mqttAdapter.Reconnect(); err != nil {
+								log.Printf("[HEALTH] Failed to restart MQTT adapter %d: %v", i+1, err)
+							}
+						}
+					}
+					systemHealth.errorCount = 0
+				}
+			} else {
+				log.Printf("[HEALTH] System healthy - Data flow: %v ago, MQTT: %v, Errors: %d",
+					timeSinceLastData, mqttConnected, systemHealth.errorCount)
+				if systemHealth.errorCount > 0 {
+					systemHealth.errorCount--
+				}
+			}
+			healthMutex.Unlock()
 		}
 	}()
 
@@ -151,6 +236,32 @@ func main() {
 
 	// Close data channel
 	close(dataCh)
+
+	// Flush any remaining buffered messages
+	log.Println("[MAIN] Flushing buffered messages...")
+	for _, adapter := range adapters {
+		if mqttAdapter, ok := adapter.(*plugins.MQTTAdapter); ok {
+			bufferedMessages := mqttAdapter.GetBufferedMessages()
+			if len(bufferedMessages) > 0 {
+				log.Printf("[MAIN] Flushing %d buffered messages from MQTT adapter", len(bufferedMessages))
+				// Process buffered messages
+				for _, data := range bufferedMessages {
+					registerOffset := data.ModbusRegister - 400001
+					if registerOffset >= 0 {
+						modbusCtx.UpdateRegister(data.UnitID, registerOffset, data.Liters)
+					}
+				}
+			}
+		}
+	}
+
+	// Disconnect MQTT clients
+	log.Println("[MAIN] Disconnecting MQTT clients...")
+	for _, adapter := range adapters {
+		if mqttAdapter, ok := adapter.(*plugins.MQTTAdapter); ok {
+			mqttAdapter.Disconnect()
+		}
+	}
 
 	// Wait for shutdown timeout or completion
 	select {
